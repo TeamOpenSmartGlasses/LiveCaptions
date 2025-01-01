@@ -12,7 +12,10 @@ import com.huaban.analysis.jieba.SegToken;
 import com.teamopensmartglasses.augmentoslib.AugmentOSLib;
 import com.teamopensmartglasses.augmentoslib.DataStreamType;
 import com.teamopensmartglasses.augmentoslib.SmartGlassesAndroidService;
+import com.teamopensmartglasses.augmentoslib.TranscriptProcessor;
 import com.teamopensmartglasses.augmentoslib.events.SpeechRecOutputEvent;
+import com.teamopensmartglasses.augmentoslib.events.StartAsrStreamRequestEvent;
+import com.teamopensmartglasses.augmentoslib.events.StopAsrStreamRequestEvent;
 
 import net.sourceforge.pinyin4j.PinyinHelper;
 import net.sourceforge.pinyin4j.format.HanyuPinyinCaseType;
@@ -29,6 +32,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Objects;
 
 public class LiveCaptionsService extends SmartGlassesAndroidService {
     public static final String TAG = "LiveCaptionsService";
@@ -50,9 +54,10 @@ public class LiveCaptionsService extends SmartGlassesAndroidService {
     private String lastTranscribeLanguage = null;
     private final int maxNormalTextCharsPerTranscript = 30;
     private final int maxCharsPerHanziTranscript = 12;
+    private final int maxLines = 3;
 
-    private final TranscriptProcessor normalTextTranscriptProcessor = new TranscriptProcessor(maxNormalTextCharsPerTranscript);
-    private final TranscriptProcessor hanziTextTranscriptProcessor = new TranscriptProcessor(maxCharsPerHanziTranscript);
+    private final TranscriptProcessor normalTextTranscriptProcessor = new TranscriptProcessor(maxNormalTextCharsPerTranscript, maxLines);
+    private final TranscriptProcessor hanziTextTranscriptProcessor = new TranscriptProcessor(maxCharsPerHanziTranscript, maxLines);
     private String currentLiveCaption = "";
     private String finalLiveCaption = "";
     private final Handler callTimeoutHandler = new Handler(Looper.getMainLooper());
@@ -89,12 +94,26 @@ public class LiveCaptionsService extends SmartGlassesAndroidService {
         //make responses holder
         transcriptsBuffer = new ArrayList<>();
 
+        requestTranscription();
+
         Log.d(TAG, "Convoscope service started");
 
-
-
+//        requestTranscription(getChosenTranscribeLanguage(this));
         completeInitialization();
+    }
 
+    private void requestTranscription() {
+//        Log.d(TAG, "Requesting transcription in " + language);
+        // Post the event to the EventBus
+        String transcriptionLanguage = getChosenTranscribeLanguage(this);
+        stopTranscription(transcriptionLanguage);
+        augmentOSLib.subscribe(new StartAsrStreamRequestEvent(transcriptionLanguage));
+    }
+
+    private void stopTranscription(String language) {
+//        Log.d(TAG, "Stopping transcription in " + language);
+        // Post the event to the EventBus
+        augmentOSLib.subscribe(new StopAsrStreamRequestEvent(language));
     }
 
     protected void setupEventBusSubscribers() {
@@ -145,15 +164,17 @@ public class LiveCaptionsService extends SmartGlassesAndroidService {
 
     @Subscribe
     public void onTranscript(SpeechRecOutputEvent event) {
-        String text = event.text;
         String languageCode = event.languageCode;
+
+        if (!Objects.equals(languageCode, AugmentOSLib.initLanguageLocale(getChosenTranscribeLanguage(this)))) return;
+        String text = event.text;
         long time = event.timestamp;
         boolean isFinal = event.isFinal;
 
         debounceAndShowTranscriptOnGlasses(text, isFinal);
     }
 
-    private Handler glassesTranscriptDebounceHandler = new Handler(Looper.getMainLooper());
+    private final Handler glassesTranscriptDebounceHandler = new Handler(Looper.getMainLooper());
     private Runnable glassesTranscriptDebounceRunnable;
     private long glassesTranscriptLastSentTime = 0;
     private final long GLASSES_TRANSCRIPTS_DEBOUNCE_DELAY = 400; // in milliseconds
@@ -316,53 +337,7 @@ public class LiveCaptionsService extends SmartGlassesAndroidService {
                 if (lastTranscribeLanguage == null || !lastTranscribeLanguage.equals(currentTranscribeLanguage)) {
                     lastTranscribeLanguage = currentTranscribeLanguage;
 
-                    switch (currentTranscribeLanguage) {
-                        case "Default":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_DEFAULT_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "English":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_ENGLISH_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "Chinese":
-                        case "Chinese (Pinyin)":
-                        case "Chinese (Hanzi)":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_CHINESE_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "Russian":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_RUSSIAN_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "French":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_FRENCH_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "Spanish":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_SPANISH_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "German":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_GERMAN_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "Arabic":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_ARABIC_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "Korean":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_KOREAN_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "Italian":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_ITALIAN_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "Turkish":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_TURKISH_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "Portuguese":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_PORTUGUESE_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        case "Dutch":
-                            augmentOSLib.subscribe(DataStreamType.TRANSCRIPTION_DUTCH_STREAM, LiveCaptionsService.this::processTranscriptionCallback);
-                            break;
-                        default:
-                            Log.d(TAG, "UNKNOWN TRANSCRIBE LANGUAGE: " + currentTranscribeLanguage);
-                            break;
-                    }
-
+                    if (lastTranscribeLanguage != null) requestTranscription();
                     finalLiveCaption = "";
                 }
 
@@ -370,143 +345,5 @@ public class LiveCaptionsService extends SmartGlassesAndroidService {
                 transcribeLanguageCheckHandler.postDelayed(this, 333); // Approximately 3 times a second
             }
         }, 0);
-    }
-
-    public static class TranscriptProcessor {
-
-        private final int maxCharsPerLine;
-        private final int maxLines = 3;
-
-        private Deque<String> lines;
-
-        private String partialText;
-
-        public TranscriptProcessor(int maxCharsPerLine) {
-            this.maxCharsPerLine = maxCharsPerLine;
-            this.lines = new ArrayDeque<>();
-            this.partialText = "";
-        }
-
-        public String processString(String newText, boolean isFinal) {
-            newText = (newText == null) ? "" : newText.trim();
-
-            if (!isFinal) {
-                // Store this as the current partial text (overwriting old partial)
-                partialText = newText;
-                return buildPreview(partialText);
-            } else {
-                // We have a final text -> clear out the partial text to avoid duplication
-                partialText = "";
-
-                // Wrap this final text
-                List<String> wrapped = wrapText(newText, maxCharsPerLine);
-                for (String chunk : wrapped) {
-                    appendToLines(chunk);
-                }
-
-                // Return only the finalized lines
-                return getTranscript();
-            }
-        }
-
-        private String buildPreview(String partial) {
-            // Wrap the partial text
-            List<String> partialChunks = wrapText(partial, maxCharsPerLine);
-
-            // Combine with finalized lines
-            List<String> combined = new ArrayList<>(lines);
-            combined.addAll(partialChunks);
-
-            // Truncate if necessary
-            if (combined.size() > maxLines) {
-                combined = combined.subList(combined.size() - maxLines, combined.size());
-            }
-
-            // Add padding to ensure exactly maxLines are displayed
-            int linesToPad = maxLines - combined.size();
-            for (int i = 0; i < linesToPad; i++) {
-                combined.add(""); // Add empty lines at the end
-            }
-
-            return String.join("\n", combined);
-        }
-
-        private void appendToLines(String chunk) {
-            if (lines.isEmpty()) {
-                lines.addLast(chunk);
-            } else {
-                String lastLine = lines.removeLast();
-                String candidate = lastLine.isEmpty() ? chunk : lastLine + " " + chunk;
-
-                if (candidate.length() <= maxCharsPerLine) {
-                    lines.addLast(candidate);
-                } else {
-                    // Put back the last line if it doesn't fit
-                    lines.addLast(lastLine);
-                    lines.addLast(chunk);
-                }
-            }
-
-            // Ensure we don't exceed maxLines
-            while (lines.size() > maxLines) {
-                lines.removeFirst();
-            }
-        }
-
-        private List<String> wrapText(String text, int maxLineLength) {
-            List<String> result = new ArrayList<>();
-            while (!text.isEmpty()) {
-                if (text.length() <= maxLineLength) {
-                    result.add(text);
-                    break;
-                } else {
-                    int splitIndex = maxLineLength;
-                    // move splitIndex left until we find a space
-                    while (splitIndex > 0 && text.charAt(splitIndex) != ' ') {
-                        splitIndex--;
-                    }
-                    // If we didn't find a space, force split
-                    if (splitIndex == 0) {
-                        splitIndex = maxLineLength;
-                    }
-
-                    String chunk = text.substring(0, splitIndex).trim();
-                    result.add(chunk);
-                    text = text.substring(splitIndex).trim();
-                }
-            }
-            return result;
-        }
-
-        public String getTranscript() {
-            // Create a copy of the lines for manipulation
-            List<String> allLines = new ArrayList<>(lines);
-
-            // Add padding to ensure exactly maxLines are displayed
-            int linesToPad = maxLines - allLines.size();
-            for (int i = 0; i < linesToPad; i++) {
-                allLines.add(""); // Add empty lines at the end
-            }
-
-            String finalString = String.join("\n", allLines);
-
-            lines.clear();
-
-            return finalString;
-        }
-
-
-        public void clear() {
-            lines.clear();
-            partialText = "";
-        }
-
-        public int getMaxCharsPerLine() {
-            return maxCharsPerLine;
-        }
-
-        public int getMaxLines() {
-            return maxLines;
-        }
     }
 }
