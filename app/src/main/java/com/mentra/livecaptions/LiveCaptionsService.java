@@ -106,14 +106,13 @@ public class LiveCaptionsService extends SmartGlassesAndroidService {
 //        Log.d(TAG, "Requesting transcription in " + language);
         // Post the event to the EventBus
         String transcriptionLanguage = getChosenTranscribeLanguage(this);
-        stopTranscription(transcriptionLanguage);
         augmentOSLib.subscribe(new StartAsrStreamRequestEvent(transcriptionLanguage));
     }
 
-    private void stopTranscription(String language) {
+    private void stopTranscription() {
 //        Log.d(TAG, "Stopping transcription in " + language);
         // Post the event to the EventBus
-        augmentOSLib.subscribe(new StopAsrStreamRequestEvent(language));
+        augmentOSLib.subscribe(new StopAsrStreamRequestEvent());
     }
 
     protected void setupEventBusSubscribers() {
@@ -158,6 +157,7 @@ public class LiveCaptionsService extends SmartGlassesAndroidService {
 
         if (displayQueue != null) displayQueue.stopQueue();
 
+//        stopTranscription();
         Log.d(TAG, "ran onDestroy");
         super.onDestroy();
     }
@@ -166,7 +166,7 @@ public class LiveCaptionsService extends SmartGlassesAndroidService {
     public void onTranscript(SpeechRecOutputEvent event) {
         String languageCode = event.languageCode;
 
-        if (!Objects.equals(languageCode, AugmentOSLib.initLanguageLocale(getChosenTranscribeLanguage(this)))) return;
+//        if (!Objects.equals(languageCode, AugmentOSLib.initLanguageLocale(getChosenTranscribeLanguage(this)))) return;
         String text = event.text;
         long time = event.timestamp;
         boolean isFinal = event.isFinal;
@@ -335,15 +335,17 @@ public class LiveCaptionsService extends SmartGlassesAndroidService {
 
                 // If the language has changed or this is the first call
                 if (lastTranscribeLanguage == null || !lastTranscribeLanguage.equals(currentTranscribeLanguage)) {
-                    lastTranscribeLanguage = currentTranscribeLanguage;
+                    if (lastTranscribeLanguage != null) {
+                        requestTranscription();
+                        finalLiveCaption = "";
+                    }
 
-                    if (lastTranscribeLanguage != null) requestTranscription();
-                    finalLiveCaption = "";
+                    lastTranscribeLanguage = currentTranscribeLanguage;
                 }
 
                 // Schedule the next check
                 transcribeLanguageCheckHandler.postDelayed(this, 333); // Approximately 3 times a second
             }
-        }, 0);
+        }, 50);
     }
 }
